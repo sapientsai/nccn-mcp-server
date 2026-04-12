@@ -51,31 +51,53 @@ const extractItemLinks = (html: string): ReadonlyArray<{ title: string; url: str
   return items
 }
 
-const findGuidelineLink = (html: string): string | undefined => {
-  const $ = cheerio.load(html)
-  let guidelineUrl: string | undefined
+const PDF_PATH_PATTERN = "/professionals/physician_gls/pdf/"
+const VERSION_PATTERN = /Version\s+([\d.]+)/i
 
-  $("a").each((_, el) => {
-    const text = $(el).text().toLowerCase()
-    if (text.includes("nccn guidelines") || text.includes("nccn guideline")) {
-      const href = $(el).attr("href")
-      if (href) {
-        guidelineUrl = href.startsWith("http") ? href : `${NCCN_BASE_URL}${href}`
-        return false // break
-      }
+export type GuidelineInfo = {
+  readonly pdfUrl: string
+  readonly version?: string
+}
+
+const findGuidelineInfo = (html: string): GuidelineInfo | undefined => {
+  const $ = cheerio.load(html)
+  let info: GuidelineInfo | undefined
+
+  $(`a[href*="${PDF_PATH_PATTERN}"]`).each((_, el) => {
+    const href = $(el).attr("href")
+    if (!href || !href.toLowerCase().endsWith(".pdf")) return
+    const text = $(el).text().trim().toLowerCase()
+    // The main English clinician PDF has anchor text exactly "NCCN Guidelines".
+    // Language variants ("Arabic", "Bengali", ...) and patient versions live elsewhere on the page.
+    if (text === "nccn guidelines") {
+      const pdfUrl = href.startsWith("http") ? href : `${NCCN_BASE_URL}${href}`
+      // Version string (e.g., "Version 2.2026") lives in a sibling span — grab it
+      // from the anchor's parent text so we don't depend on exact DOM structure.
+      const parentText = $(el).parent().text()
+      const versionMatch = VERSION_PATTERN.exec(parentText)
+      info = { pdfUrl, version: versionMatch?.[1] }
+      return false // break
     }
   })
 
-  return guidelineUrl
+  return info
 }
+
+const findGuidelineLink = (html: string): string | undefined => findGuidelineInfo(html)?.pdfUrl
 
 const processItem = async (item: { title: string; url: string }): Promise<Guideline | undefined> => {
   const pageResult = await fetchPage(item.url)
   return pageResult.fold(
     () => undefined,
     (html) => {
-      const guidelineUrl = findGuidelineLink(html)
-      return guidelineUrl ? { title: item.title, url: guidelineUrl } : undefined
+      const info = findGuidelineInfo(html)
+      if (!info) return undefined
+      return {
+        title: item.title,
+        url: info.pdfUrl,
+        detailUrl: item.url,
+        version: info.version,
+      }
     },
   )
 }
@@ -160,4 +182,4 @@ export const ensureIndex = async (
 }
 
 // Exported for testing
-export { extractItemLinks, findGuidelineLink }
+export { extractItemLinks, findGuidelineInfo, findGuidelineLink }

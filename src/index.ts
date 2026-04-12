@@ -38,11 +38,33 @@ server.addTool({
 
 // ── Tool: download_pdf ────────────────────────────────────────────────
 
+const lookupDetailUrl = async (pdfUrl: string): Promise<string | undefined> => {
+  const index = await readYamlIndex(DEFAULT_INDEX_FILE)
+  if (index.isLeft()) return undefined
+  for (const category of (
+    index.value as {
+      nccn_guidelines: ReadonlyArray<{ guidelines: ReadonlyArray<{ url: string; detailUrl?: string }> }>
+    }
+  ).nccn_guidelines) {
+    for (const g of category.guidelines) {
+      if (g.url === pdfUrl) return g.detailUrl
+    }
+  }
+  return undefined
+}
+
 server.addTool({
-  description: "Download an NCCN guideline PDF. Use a URL from the guidelines index.",
+  description: [
+    "Download an NCCN guideline PDF. Use a URL from the guidelines index.",
+    "Version-aware caching: returns cached PDF if the live NCCN version is unchanged.",
+    "Live version check is throttled to once per 6h per guideline; set force_refresh=true to bypass.",
+  ].join(" "),
   execute: async (args) => {
+    const detailUrl = await lookupDetailUrl(args.url)
     const result = await downloadPdf(args.url, {
+      detailUrl,
       downloadDir: DEFAULT_DOWNLOAD_DIR,
+      forceRefresh: args.force_refresh,
       password: args.password,
       username: args.username,
     })
@@ -53,6 +75,7 @@ server.addTool({
   },
   name: "download_pdf",
   parameters: z.object({
+    force_refresh: z.boolean().optional().describe("Skip cache and version-check throttle; re-download from NCCN."),
     password: z.string().optional().describe("NCCN password (falls back to NCCN_PASSWORD env var)"),
     url: z.string().describe("PDF URL from the guidelines index"),
     username: z.string().optional().describe("NCCN login email (falls back to NCCN_USERNAME env var)"),

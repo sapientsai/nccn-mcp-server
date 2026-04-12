@@ -59,11 +59,20 @@ export const extractContent = async (pdfPath: string, pages?: string): Promise<E
     const absolutePath = resolve(pdfPath)
     const buffer = await readFile(absolutePath)
 
-    // pdf-parse extracts all text — we need page count first
-    const parsed = await pdfParse(buffer)
+    // Collect per-page text via pdf-parse's pagerender callback.
+    // The callback fires once per page in order; we track the index manually
+    // since pdf-parse doesn't expose it.
+    const perPageText: string[] = []
+    const parsed = await pdfParse(buffer, {
+      pagerender: async (pageData: { getTextContent: () => Promise<{ items: ReadonlyArray<{ str: string }> }> }) => {
+        const textContent = await pageData.getTextContent()
+        const text = textContent.items.map((item) => item.str).join(" ")
+        perPageText.push(text)
+        return text
+      },
+    })
     const totalPages = parsed.numpages
 
-    // Determine which pages to extract
     let pageIndices: number[]
     if (pages) {
       const parseResult = parsePages(pages, totalPages)
@@ -72,30 +81,17 @@ export const extractContent = async (pdfPath: string, pages?: string): Promise<E
       }
       pageIndices = parseResult.value as number[]
     } else {
-      // All pages
       pageIndices = Array.from({ length: totalPages }, (_, i) => i)
     }
 
-    // pdf-parse doesn't support per-page extraction natively,
-    // so we use its page render callback
-    const pageTexts: Map<number, string> = new Map()
-
-    await pdfParse(buffer, {
-      pagerender: async (pageData: { getTextContent: () => Promise<{ items: ReadonlyArray<{ str: string }> }> }) => {
-        const textContent = await pageData.getTextContent()
-        return textContent.items.map((item) => item.str).join(" ")
-      },
+    const contents: PageContent[] = pageIndices.map((idx) => {
+      const text = perPageText[idx]
+      return {
+        internalLinks: [],
+        pageNumber: idx + 1,
+        text: text && text.trim().length > 0 ? text : `[Page ${idx + 1} - text extraction unavailable]`,
+      }
     })
-
-    // Fallback: split full text by form feeds or use full text per requested page
-    const fullText = parsed.text
-    const pageSplits = fullText.split("\n\n\n")
-
-    const contents: PageContent[] = pageIndices.map((idx) => ({
-      internalLinks: [],
-      pageNumber: idx + 1,
-      text: pageSplits[idx] ?? `[Page ${idx + 1} - text extraction unavailable]`,
-    }))
 
     return Either.right(contents)
   } catch (error) {

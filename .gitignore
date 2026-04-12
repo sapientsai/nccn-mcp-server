@@ -41,3 +41,7 @@ node_modules/
 
 # Claude Code
 .claude/settings.local.json
+
+# NCCN runtime artifacts (copyrighted content — do not commit)
+downloads/
+nccn_guidelines_index.yaml

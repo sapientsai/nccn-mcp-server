@@ -4,7 +4,7 @@ import { dirname } from "node:path"
 import { Either, None, Option, Some } from "functype"
 import yaml from "js-yaml"
 
-import type { CacheInfo, GuidelineIndex } from "../types.js"
+import type { CacheInfo, GuidelineIndex, PdfMeta } from "../types.js"
 import { DEFAULT_CACHE_AGE_DAYS } from "../types.js"
 
 const msPerDay = 86_400_000
@@ -56,4 +56,24 @@ export const checkPdfCache = async (
 ): Promise<Option<string>> => {
   const info = await checkCache(filePath, maxAgeDays)
   return info.isValid ? Some(filePath) : None<string>()
+}
+
+export const metaPath = (pdfPath: string): string => `${pdfPath}.meta.json`
+
+export const readPdfMeta = async (pdfPath: string): Promise<Option<PdfMeta>> => {
+  try {
+    const content = await readFile(metaPath(pdfPath), "utf-8")
+    return Some(JSON.parse(content) as PdfMeta)
+  } catch {
+    return None<PdfMeta>()
+  }
+}
+
+export const writePdfMeta = async (pdfPath: string, meta: PdfMeta): Promise<Either<Error, true>> => {
+  try {
+    await writeFile(metaPath(pdfPath), JSON.stringify(meta, null, 2), "utf-8")
+    return Either.right(true)
+  } catch (error) {
+    return Either.left(error instanceof Error ? error : new Error(String(error)))
+  }
 }

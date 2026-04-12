@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { extractItemLinks, findGuidelineLink } from "../../src/scraper/index-scraper.js"
+import { extractItemLinks, findGuidelineInfo, findGuidelineLink } from "../../src/scraper/index-scraper.js"
 
 describe("extractItemLinks", () => {
   it("extracts links from item-name divs", () => {
@@ -28,18 +28,49 @@ describe("extractItemLinks", () => {
 })
 
 describe("findGuidelineLink", () => {
-  it("finds NCCN guidelines link", () => {
+  it("finds the main English clinician PDF", () => {
     const html = `
-      <a href="/some/other">Other Link</a>
-      <a href="/guidelines/pdf/breast.pdf">View NCCN Guidelines</a>
+      <a href="/guidelines/nccn-guidelines-navigator">NCCN Guidelines Navigator</a>
+      <a href="/professionals/physician_gls/pdf/breast.pdf">NCCN Guidelines</a>
+      <a href="/professionals/physician_gls/pdf/breast-arabic.pdf">Arabic</a>
     `
     const url = findGuidelineLink(html)
-    expect(url).toBe("https://www.nccn.org/guidelines/pdf/breast.pdf")
+    expect(url).toBe("https://www.nccn.org/professionals/physician_gls/pdf/breast.pdf")
   })
 
-  it("returns undefined when no guideline link found", () => {
+  it("ignores the navbar navigator link", () => {
+    const html = `
+      <a href="/guidelines/nccn-guidelines-navigator">NCCN Guidelines</a>
+      <a href="/professionals/physician_gls/pdf/lung.pdf">NCCN Guidelines</a>
+    `
+    const url = findGuidelineLink(html)
+    expect(url).toBe("https://www.nccn.org/professionals/physician_gls/pdf/lung.pdf")
+  })
+
+  it("returns undefined when no PDF link found", () => {
     const html = `<a href="/about">About Us</a>`
     const url = findGuidelineLink(html)
     expect(url).toBeUndefined()
+  })
+})
+
+describe("findGuidelineInfo", () => {
+  it("extracts PDF url and version from sibling span", () => {
+    const html = `
+      <p>
+        <a href="/professionals/physician_gls/pdf/breast.pdf">NCCN Guidelines</a>
+        <span> Version 2.2026</span>
+      </p>
+    `
+    const info = findGuidelineInfo(html)
+    expect(info?.pdfUrl).toBe("https://www.nccn.org/professionals/physician_gls/pdf/breast.pdf")
+    expect(info?.version).toBe("2.2026")
+  })
+
+  it("returns pdfUrl but undefined version when version span is missing", () => {
+    const html = `<a href="/professionals/physician_gls/pdf/foo.pdf">NCCN Guidelines</a>`
+    const info = findGuidelineInfo(html)
+    expect(info?.pdfUrl).toBe("https://www.nccn.org/professionals/physician_gls/pdf/foo.pdf")
+    expect(info?.version).toBeUndefined()
   })
 })

@@ -1,13 +1,34 @@
-import { mkdir, writeFile } from "node:fs/promises"
+import { mkdir, stat, writeFile } from "node:fs/promises"
 import { basename, join } from "node:path"
 
 import { Either } from "functype"
 
-import { checkPdfCache } from "../cache/cache.js"
-import type { DownloadOptions, DownloadResult } from "../types.js"
-import { DEFAULT_CACHE_AGE_DAYS, DEFAULT_DOWNLOAD_DIR, NCCN_BASE_URL, USER_AGENT } from "../types.js"
+import { readPdfMeta, writePdfMeta } from "../cache/cache.js"
+import type { DownloadOptions, DownloadResult, PdfMeta } from "../types.js"
+import {
+  DEFAULT_DOWNLOAD_DIR,
+  HARD_REFRESH_DAYS,
+  NCCN_BASE_URL,
+  USER_AGENT,
+  VERSION_CHECK_THROTTLE_HOURS,
+} from "../types.js"
 
 const LOGIN_URL = `${NCCN_BASE_URL}/login/Index/`
+const VERSION_PATTERN = /Version\s+([\d.]+)/i
+const msPerHour = 3_600_000
+const msPerDay = 86_400_000
+
+const fetchCurrentVersion = async (detailUrl: string): Promise<string | undefined> => {
+  try {
+    const response = await fetch(detailUrl, { headers: defaultHeaders(), redirect: "follow" })
+    if (!response.ok) return undefined
+    const html = await response.text()
+    const match = html.match(VERSION_PATTERN)
+    return match?.[1]
+  } catch {
+    return undefined
+  }
+}
 
 const defaultHeaders = (): Record<string, string> => ({
   Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -74,26 +95,125 @@ const login = async (username: string, password: string, targetUrl: string): Pro
   }
 }
 
+/**
+ * Decide whether to re-use the cached PDF or re-download.
+ *
+ * Logic:
+ *   - No cached PDF         → download
+ *   - forceRefresh          → download
+ *   - Older than HARD_REFRESH_DAYS → download (catches silent revisions)
+ *   - Within VERSION_CHECK_THROTTLE_HOURS → trust cache, no network call
+ *   - Otherwise             → fetch detail page, compare version; match=keep, mismatch=download
+ */
+const decideAction = async (
+  filePath: string,
+  detailUrl: string | undefined,
+  forceRefresh: boolean,
+): Promise<{ action: "use-cache" | "download"; reason: string; currentVersion?: string }> => {
+  if (forceRefresh) return { action: "download", reason: "force_refresh requested" }
+
+  let fileExists = false
+  let fileAgeDays = Infinity
+  try {
+    const stats = await stat(filePath)
+    fileExists = stats.size > 0
+    fileAgeDays = (Date.now() - stats.mtimeMs) / msPerDay
+  } catch {
+    // missing file
+  }
+
+  if (!fileExists) return { action: "download", reason: "no cached file" }
+  if (fileAgeDays >= HARD_REFRESH_DAYS) {
+    return { action: "download", reason: `cached file older than ${HARD_REFRESH_DAYS}d hard ceiling` }
+  }
+
+  const meta = await readPdfMeta(filePath)
+  if (!meta.isSome()) {
+    // Have a PDF but no metadata — treat as fresh enough (likely pre-feature download)
+    // and let the throttle kick in on next call.
+    return { action: "use-cache", reason: "no metadata (legacy cache entry)" }
+  }
+
+  const metaValue = meta.value as PdfMeta
+  const hoursSinceCheck = (Date.now() - Date.parse(metaValue.lastCheckedAt)) / msPerHour
+  if (hoursSinceCheck < VERSION_CHECK_THROTTLE_HOURS) {
+    return { action: "use-cache", reason: `within ${VERSION_CHECK_THROTTLE_HOURS}h version-check throttle` }
+  }
+
+  if (!detailUrl) {
+    // No detail URL available — we can't check live version. Trust cache until hard ceiling.
+    return { action: "use-cache", reason: "no detailUrl to check live version" }
+  }
+
+  const currentVersion = await fetchCurrentVersion(detailUrl)
+  if (!currentVersion) {
+    // Detail page fetch failed — trust cache rather than forcing re-download on network hiccup.
+    return { action: "use-cache", reason: "live version check failed, trusting cache", currentVersion: undefined }
+  }
+
+  if (metaValue.version && metaValue.version === currentVersion) {
+    return { action: "use-cache", reason: `version unchanged (${currentVersion})`, currentVersion }
+  }
+
+  return {
+    action: "download",
+    reason: `version changed: cached=${metaValue.version ?? "unknown"} current=${currentVersion}`,
+    currentVersion,
+  }
+}
+
 export const downloadPdf = async (
   url: string,
   options: DownloadOptions = {},
 ): Promise<Either<Error, DownloadResult>> => {
   const downloadDir = options.downloadDir ?? DEFAULT_DOWNLOAD_DIR
-  const maxAge = options.maxCacheAgeDays ?? DEFAULT_CACHE_AGE_DAYS
   const skipIfExists = options.skipIfExists ?? true
   const username = options.username ?? process.env.NCCN_USERNAME
   const password = options.password ?? process.env.NCCN_PASSWORD
+  const detailUrl = options.detailUrl
+  const forceRefresh = options.forceRefresh ?? false
 
   const filename = extractFilename(url)
   const filePath = join(downloadDir, filename)
 
-  // Check cache
   if (skipIfExists) {
-    const cached = await checkPdfCache(filePath, maxAge)
-    if (cached.isSome()) {
-      const result: DownloadResult = { filename: filePath, message: "Using cached PDF", success: true }
+    const decision = await decideAction(filePath, detailUrl, forceRefresh)
+    if (decision.action === "use-cache") {
+      // Refresh lastCheckedAt if we just did a live check (regardless of outcome).
+      if (decision.currentVersion !== undefined) {
+        const existingMeta = await readPdfMeta(filePath)
+        const nowIso = new Date().toISOString()
+        const updated: PdfMeta = existingMeta.isSome()
+          ? { ...(existingMeta.value as PdfMeta), lastCheckedAt: nowIso, version: decision.currentVersion }
+          : {
+              detailUrl,
+              downloadedAt: nowIso,
+              lastCheckedAt: nowIso,
+              sourceUrl: url,
+              version: decision.currentVersion,
+            }
+        await writePdfMeta(filePath, updated)
+      }
+      const result: DownloadResult = {
+        filename: filePath,
+        message: `Using cached PDF (${decision.reason})`,
+        success: true,
+      }
       return Either.right(result)
     }
+  }
+
+  const saveMeta = async (): Promise<void> => {
+    const liveVersion = detailUrl ? await fetchCurrentVersion(detailUrl) : undefined
+    const nowIso = new Date().toISOString()
+    const meta: PdfMeta = {
+      detailUrl,
+      downloadedAt: nowIso,
+      lastCheckedAt: nowIso,
+      sourceUrl: url,
+      version: liveVersion,
+    }
+    await writePdfMeta(filePath, meta)
   }
 
   try {
@@ -107,6 +227,7 @@ export const downloadPdf = async (
     if (contentType.includes("application/pdf")) {
       const buffer = Buffer.from(await response.arrayBuffer())
       await writeFile(filePath, buffer)
+      await saveMeta()
       const result: DownloadResult = { filename: filePath, message: "Downloaded successfully", success: true }
       return Either.right(result)
     }
@@ -133,6 +254,7 @@ export const downloadPdf = async (
 
       const buffer = Buffer.from(await authResponse.arrayBuffer())
       await writeFile(filePath, buffer)
+      await saveMeta()
       const result: DownloadResult = { filename: filePath, message: "Downloaded after login", success: true }
       return Either.right(result)
     }

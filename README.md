@@ -1,112 +1,188 @@
-## ts-builds-template
+## nccn-mcp-server
 
-[![Node.js CI](https://github.com/jordanburke/ts-builds-template/actions/workflows/node.js.yml/badge.svg)](https://github.com/jordanburke/ts-builds-template/actions/workflows/node.js.yml)
-[![npm version](https://img.shields.io/npm/v/ts-builds-template.svg)](https://www.npmjs.com/package/ts-builds-template)
+An MCP (Model Context Protocol) server that provides access to NCCN (National Comprehensive Cancer Network) clinical cancer treatment guidelines. Ported from the Python [NCCN_guidelines_MCP](https://github.com/sapientsai/NCCN_guidelines_MCP) project.
 
-A modern TypeScript library template with standardized build scripts and tooling.
+Built on [somamcp](https://github.com/sapientsai/somamcp) (MCP framework) and [functype](https://github.com/jordanburke/functype) (FP patterns). Uses a non-RAG approach — reads guidelines directly from PDFs for accuracy and traceability.
+
+---
+
+## ⚠️ Licensing Notice — Read Before Use
+
+**NCCN content is copyrighted and its End-User License Agreement explicitly prohibits AI use without a separate written agreement with NCCN.**
+
+The relevant EULA clause states:
+
+> _"Except as otherwise separately and specifically agreed in writing by NCCN, users shall not use NCCN Content in connection with any development, testing, training, exploitation or support of any artificial intelligence (AI) software or other model, algorithm or technology."_
+
+This project is provided for **personal research and evaluation only**. Do not deploy it in any commercial, clinical, or client-facing context without first obtaining an NCCN license. Contact [[email protected]](mailto:[email protected]) for licensing inquiries.
+
+### Regulatory context
+
+- NCCN is recognized by **CMS** (not FDA) as an authoritative compendium under Social Security Act §1861(t)(2)(B) for Medicare coverage determinations of off-label anti-cancer drug indications.
+- FDA has no rule that overrides NCCN's copyright or licensing terms. The EULA restriction on AI use is a private contract term, not a regulatory question.
+- For production AI integrations that need NCCN content, consider either (a) a direct NCCN license (the path [OpenEvidence took](https://www.openevidence.com/announcements/nccn-and-openevidence-collaborate-to-bring-clinical-oncology-guidelines-to-medical-ai) in Nov 2025) or (b) integrating via a licensed aggregator like OpenEvidence's API.
+
+### No warranty
+
+This software is provided "as is" without warranty of any kind. It does not constitute medical advice, is not a clinical decision support tool, and must not be used as the sole basis for any treatment decision.
+
+---
 
 ## Features
 
-- **Modern Build System**: [ts-builds](https://github.com/jordanburke/ts-builds) + [tsdown](https://tsdown.dev/) for fast bundling
-- **Testing**: [Vitest](https://vitest.dev/) with coverage reporting
-- **Code Quality**: ESLint + Prettier with automatic formatting and fixing
-- **ESM Output**: ES module output with proper TypeScript declarations
-- **Standardized Scripts**: Consistent commands via ts-builds across all projects
+- **Live index** — scrapes the NCCN site to discover all available guidelines across 4 categories (Treatment by Cancer Type, Detection/Prevention, Supportive Care, Specific Populations), ~90 guidelines total. Each entry carries the current `Version X.YYYY` string from NCCN.
+- **Version-aware PDF caching** — per-file `.meta.json` sidecar tracks NCCN's live version string; re-downloads only when NCCN actually publishes a new version, with a 6h throttle on version checks and a 30-day hard refresh ceiling.
+- **Authenticated PDF download** — detects NCCN's login redirect, authenticates with credentials, and retries with auth cookies.
+- **Per-page text extraction** — pulls text from specific pages or ranges, supports negative indexing for last page.
+- **File-based caching** — 7-day default TTL for both the YAML index and downloaded PDFs, with stale-cache fallback if scraping fails.
+- **Functional error handling** — all I/O operations return `Either<Error, T>` via functype.
 
-## Quick Start
+## MCP Tools
 
-1. **Use this template** to create a new repository
-2. **Clone your new repository**
-3. **Install dependencies**: `pnpm install`
-4. **Start developing**: `pnpm dev` (builds with watch mode)
-5. **Before committing**: `pnpm validate` (format + lint + test + build)
+| Tool              | Purpose                                                                                         | Key Parameters                                                  |
+| ----------------- | ----------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| `get_index`       | List all available guidelines organized by category (includes live `version` + `detailUrl`)     | (none)                                                          |
+| `download_pdf`    | Download a guideline PDF with version-aware caching (auto-login, 6h throttle, 30d hard refresh) | `url`, optional `username`/`password`, optional `force_refresh` |
+| `extract_content` | Extract text from specific pages of a downloaded PDF                                            | `pdf_path`, optional `pages`                                    |
 
-## Development Commands
+### Resources
 
-### Pre-Checkin Command
+| Resource URI              | Purpose                                          |
+| ------------------------- | ------------------------------------------------ |
+| `nccn://guidelines-index` | Full YAML index of all guidelines and categories |
+
+### Page specification syntax (for `extract_content`)
+
+- Single: `"3"`
+- Multiple: `"1,3,5"`
+- Range: `"1-5"`
+- Combined: `"1,3,5-7"`
+- Last page: `"-1"`
+- Omit entirely to extract all pages
+
+## Typical Agent Workflow
+
+1. Call `get_index` — find a guideline URL by cancer type
+2. Call `download_pdf(url)` — returns a local PDF path under `./downloads/`
+3. Call `extract_content(pdf_path, "3")` — read the Table of Contents (page 3 is standard for NCCN guidelines)
+4. Call `extract_content(pdf_path, "10-15")` — read specific clinical pages
+5. Provide evidence-based answer with page citations
+
+## Installation
 
 ```bash
-pnpm validate  # Main command: format, lint, test, and build everything
+pnpm install
+pnpm build
 ```
 
-### Individual Commands
+## Configuration
 
-```bash
-# Formatting
-pnpm format        # Format code with Prettier
-pnpm format:check  # Check formatting without writing
+### Environment variables
 
-# Linting
-pnpm lint          # Fix ESLint issues
-pnpm lint:check    # Check ESLint issues without fixing
+| Variable        | Purpose                                          | Required                                  |
+| --------------- | ------------------------------------------------ | ----------------------------------------- |
+| `NCCN_USERNAME` | NCCN account email for PDF login                 | Yes for downloads (or passed as tool arg) |
+| `NCCN_PASSWORD` | NCCN account password                            | Yes for downloads (or passed as tool arg) |
+| `MCP_TRANSPORT` | `stdio` (default) or `httpStream`                | No                                        |
+| `MCP_PORT`      | Port for `httpStream` transport (default `8000`) | No                                        |
 
-# Testing
-pnpm test          # Run tests once
-pnpm test:watch    # Run tests in watch mode
-pnpm test:coverage # Run tests with coverage report
+### Claude Code integration (`.mcp.json`)
 
-# Building
-pnpm build         # Production build
-pnpm dev           # Development mode with watch
-
-# Type Checking
-pnpm typecheck     # Check TypeScript types
+```json
+{
+  "mcpServers": {
+    "nccn-guidelines": {
+      "command": "node",
+      "args": ["dist/index.js"],
+      "env": {
+        "NCCN_USERNAME": "${NCCN_USERNAME}",
+        "NCCN_PASSWORD": "${NCCN_PASSWORD}"
+      }
+    }
+  }
+}
 ```
 
-## Publishing
+Place this at the repo root and Claude Code will prompt to approve the project-scoped server on next restart.
 
-The template automatically runs `pnpm validate` before publishing via the `prepublishOnly` script.
+## Usage
+
+### As an MCP server (stdio — default)
 
 ```bash
-npm version patch|minor|major
-npm publish --access public
+pnpm start
+```
+
+### HTTP stream transport
+
+```bash
+MCP_TRANSPORT=httpStream MCP_PORT=8000 pnpm start
+```
+
+## Architecture
+
+### Entry point (`src/index.ts`)
+
+Creates the MCP server via `somamcp.createServer()` and registers 3 tools + 1 resource. On startup, kicks off an async index refresh (non-blocking), then starts the configured transport.
+
+### Modules
+
+| Module                             | Responsibility                                                                                                                               |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/scraper/index-scraper.ts`     | Scrapes NCCN (4 category pages + each guideline detail page) using cheerio. Returns `Either<Error, GuidelineIndex>`. Cached 7 days.          |
+| `src/downloader/pdf-downloader.ts` | Downloads PDFs with NCCN login flow. Detects login redirects, authenticates with `NCCN_USERNAME`/`NCCN_PASSWORD`, retries with auth cookies. |
+| `src/reader/pdf-reader.ts`         | Extracts per-page text via `pdf-parse`'s `pagerender` callback. Supports page specs and negative indexing.                                   |
+| `src/cache/cache.ts`               | File-based caching for the YAML index and PDF files. Uses functype's `Option`/`Either`.                                                      |
+| `src/types.ts`                     | Shared types and constants (cache durations, URLs, User-Agent).                                                                              |
+
+### Cache behavior
+
+- **Index**: `./nccn_guidelines_index.yaml` (7-day TTL). Stale cache is returned as a fallback when scraping fails.
+- **PDFs**: `./downloads/*.pdf` with per-file metadata sidecar `*.meta.json` tracking the live NCCN version string and last-checked timestamp.
+- **Version-aware refresh policy** on `download_pdf`:
+  1. `force_refresh=true` → always re-download.
+  2. Cached file older than 30 days → re-download (catches silent revisions NCCN may ship without bumping the version string).
+  3. Within 6 hours of last check → trust cache, no network call.
+  4. Otherwise → fetch the detail page, compare `Version X.YYYY`, re-download only if changed.
+
+## Development
+
+```bash
+pnpm validate                                    # format + lint + typecheck + test + build
+pnpm test                                        # run tests once
+pnpm vitest run test/reader/pdf-reader.spec.ts   # run a single test file
+pnpm build                                       # production build
+pnpm dev                                         # watch mode
+pnpm typecheck                                   # type checking only
+pnpm start                                       # run the built server (stdio transport)
 ```
 
 ## Project Structure
 
 ```
 src/
-├── index.ts          # Main library entry point
-test/
-├── *.spec.ts         # Test files
-dist/                 # Built output (ES module + types)
+├── cache/              # YAML + PDF caching
+├── downloader/         # PDF download with NCCN auth flow
+├── reader/             # Per-page PDF text extraction
+├── scraper/            # NCCN website scraper
+├── types.ts            # Shared types and constants
+└── index.ts            # MCP server entry point
+test/                   # Vitest specs mirroring src/ layout
+dist/                   # Built output (ES module + types)
+downloads/              # Downloaded PDFs (gitignored)
+nccn_guidelines_index.yaml  # Cached index (gitignored)
 ```
 
-## Tooling
+## Dependencies
 
-- **Build**: [ts-builds](https://github.com/jordanburke/ts-builds) - Centralized TypeScript toolchain
-- **Bundler**: [tsdown](https://tsdown.dev/) - Fast TypeScript bundler (successor to tsup)
-- **Test**: [Vitest](https://vitest.dev/) - Fast unit test framework
-- **Lint**: [ESLint](https://eslint.org/) with TypeScript support
-- **Format**: [Prettier](https://prettier.io/) with ESLint integration
-- **Package Manager**: [pnpm](https://pnpm.io/) for fast, efficient installs
+- **[somamcp](https://github.com/sapientsai/somamcp)** — MCP framework
+- **[functype](https://github.com/jordanburke/functype)** — Option/Either/Try
+- **[cheerio](https://cheerio.js.org/)** — HTML parsing (replaces Python BeautifulSoup)
+- **[pdf-parse](https://gitlab.com/autokent/pdf-parse)** — PDF text extraction (replaces Python pypdf)
+- **[js-yaml](https://github.com/nodeca/js-yaml)** — YAML read/write
+- **[zod](https://zod.dev/)** — Tool parameter schemas
+- **[dotenv](https://github.com/motdotla/dotenv)** — `.env` file loading
 
-## Claude Code Skill
+## License
 
-This repository includes a Claude Code skill for bootstrapping new TypeScript libraries from this template:
-
-**Location**: `.claude/skills/ts-builds-template/`
-
-**Usage**: When using Claude Code, the skill provides guidance for:
-
-- Cloning and customizing this template for a new library
-- Understanding the project structure and dev workflow
-- Publishing to npm
-
-**Installation** (for use in other projects):
-
-```bash
-# Copy the skill to your Claude Code skills directory
-cp -r .claude/skills/ts-builds-template ~/.claude/skills/
-```
-
-**Related Skills**: For tooling configuration, migration guides, and standardizing existing projects, see the [ts-builds](https://github.com/jordanburke/ts-builds) skill.
-
-**References**:
-
-- [CLAUDE.md](./CLAUDE.md) - Development guidance for this project
-- [.claude/skills/ts-builds-template/](./.claude/skills/ts-builds-template/) - Complete skill documentation
-
----
-
-_This template is based on the earlier work of https://github.com/orabazu/tsup-library-template but updated with modern tooling and standardized scripts._
+MIT (for this codebase). See the **Licensing Notice** above for NCCN content usage restrictions — the MIT license on this code does **not** grant any rights to NCCN content.
