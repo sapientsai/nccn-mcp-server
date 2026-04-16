@@ -1,0 +1,19 @@
+services:
+  nccn-mcp:
+    build:
+      context: .
+      args:
+        GIT_HASH: ${GIT_HASH:-}
+    ports:
+      - "${MCP_PORT:-8000}:8000"
+    environment:
+      - NCCN_USERNAME=${NCCN_USERNAME:-}
+      - NCCN_PASSWORD=${NCCN_PASSWORD:-}
+      - MCP_TRANSPORT=httpStream
+      - MCP_PORT=8000
+    volumes:
+      - nccn-downloads:/app/downloads
+    restart: unless-stopped
+
+volumes:
+  nccn-downloads:
