@@ -1,7 +1,9 @@
+import type { Stats } from "node:fs"
 import { mkdir, stat, writeFile } from "node:fs/promises"
 import { basename, join } from "node:path"
 
-import { Either } from "functype"
+import type { Option } from "functype"
+import { Either, None, Some, Try } from "functype"
 
 import { readPdfMeta, writePdfMeta } from "../cache/cache.js"
 import type { DownloadOptions, DownloadResult, PdfMeta } from "../types.js"
@@ -18,16 +20,28 @@ const VERSION_PATTERN = /Version\s+([\d.]+)/i
 const msPerHour = 3_600_000
 const msPerDay = 86_400_000
 
+const statOption = async (filePath: string): Promise<Option<Stats>> => {
+  const attempt = await Try.fromPromise<Stats>(stat(filePath))
+  return attempt.fold<Option<Stats>>(
+    () => None<Stats>(),
+    (s) => Some(s),
+  )
+}
+
 const fetchCurrentVersion = async (detailUrl: string): Promise<string | undefined> => {
-  try {
-    const response = await fetch(detailUrl, { headers: defaultHeaders(), redirect: "follow" })
-    if (!response.ok) return undefined
-    const html = await response.text()
-    const match = html.match(VERSION_PATTERN)
-    return match?.[1]
-  } catch {
-    return undefined
-  }
+  const attempt = await Try.fromPromise<string | undefined>(
+    (async (): Promise<string | undefined> => {
+      const response = await fetch(detailUrl, { headers: defaultHeaders(), redirect: "follow" })
+      if (!response.ok) return undefined
+      const html = await response.text()
+      const match = html.match(VERSION_PATTERN)
+      return match?.[1]
+    })(),
+  )
+  return attempt.fold<string | undefined>(
+    () => undefined,
+    (v) => v,
+  )
 }
 
 const defaultHeaders = (): Record<string, string> => ({
@@ -112,15 +126,11 @@ const decideAction = async (
 ): Promise<{ action: "use-cache" | "download"; reason: string; currentVersion?: string }> => {
   if (forceRefresh) return { action: "download", reason: "force_refresh requested" }
 
-  let fileExists = false
-  let fileAgeDays = Infinity
-  try {
-    const stats = await stat(filePath)
-    fileExists = stats.size > 0
-    fileAgeDays = (Date.now() - stats.mtimeMs) / msPerDay
-  } catch {
-    // missing file
-  }
+  const statsOpt = await statOption(filePath)
+  const { fileExists, fileAgeDays } = statsOpt.fold(
+    () => ({ fileExists: false, fileAgeDays: Infinity }),
+    (s) => ({ fileExists: s.size > 0, fileAgeDays: (Date.now() - s.mtimeMs) / msPerDay }),
+  )
 
   if (!fileExists) return { action: "download", reason: "no cached file" }
   if (fileAgeDays >= HARD_REFRESH_DAYS) {
@@ -183,15 +193,16 @@ export const downloadPdf = async (
       if (decision.currentVersion !== undefined) {
         const existingMeta = await readPdfMeta(filePath)
         const nowIso = new Date().toISOString()
-        const updated: PdfMeta = existingMeta.isSome()
-          ? { ...(existingMeta.value as PdfMeta), lastCheckedAt: nowIso, version: decision.currentVersion }
-          : {
-              detailUrl,
-              downloadedAt: nowIso,
-              lastCheckedAt: nowIso,
-              sourceUrl: url,
-              version: decision.currentVersion,
-            }
+        const updated: PdfMeta = existingMeta.fold(
+          () => ({
+            detailUrl,
+            downloadedAt: nowIso,
+            lastCheckedAt: nowIso,
+            sourceUrl: url,
+            version: decision.currentVersion,
+          }),
+          (value) => ({ ...value, lastCheckedAt: nowIso, version: decision.currentVersion }),
+        )
         await writePdfMeta(filePath, updated)
       }
       const result: DownloadResult = {

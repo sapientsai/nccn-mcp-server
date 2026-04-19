@@ -40,17 +40,13 @@ server.addTool({
 
 const lookupDetailUrl = async (pdfUrl: string): Promise<string | undefined> => {
   const index = await readYamlIndex(DEFAULT_INDEX_FILE)
-  if (index.isLeft()) return undefined
-  for (const category of (
-    index.value as {
-      nccn_guidelines: ReadonlyArray<{ guidelines: ReadonlyArray<{ url: string; detailUrl?: string }> }>
-    }
-  ).nccn_guidelines) {
-    for (const g of category.guidelines) {
-      if (g.url === pdfUrl) return g.detailUrl
-    }
-  }
-  return undefined
+  return index.fold(
+    () => undefined,
+    (idx) =>
+      idx.nccn_guidelines
+        .flatMap((c) => c.guidelines as ReadonlyArray<{ url: string; detailUrl?: string }>)
+        .find((g) => g.url === pdfUrl)?.detailUrl,
+  )
 }
 
 server.addTool({
@@ -123,7 +119,7 @@ server.addResource({
 
 const main = async (): Promise<void> => {
   // Begin index refresh in background (don't block server start)
-  ensureIndex(DEFAULT_INDEX_FILE).then((result) =>
+  void ensureIndex(DEFAULT_INDEX_FILE).then((result) =>
     result.fold(
       (error) => console.error(`[server] Index loading failed: ${error.message}`),
       (index) =>
