@@ -34,18 +34,18 @@
   "dependencies": {
     "cheerio": "^1.2.0",
     "dotenv": "^16.6.1",
-    "functype": "^0.56.0",
+    "functype": "^0.60.2",
     "js-yaml": "^4.1.1",
     "pdf-parse": "^1.1.4",
-    "somamcp": "^1.0.1",
+    "somamcp": "^1.0.5",
     "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^24.12.2",
     "@types/pdf-parse": "^1.1.5",
-    "ts-builds": "^2.6.4",
-    "tsdown": "^0.21.8"
+    "ts-builds": "^2.7.1",
+    "tsdown": "^0.21.9"
   },
   "type": "module",
   "main": "./dist/index.js",
