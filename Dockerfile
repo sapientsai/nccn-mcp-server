@@ -5,14 +5,12 @@ RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
 
 WORKDIR /app
 
-COPY package.json pnpm-lock.yaml ./
+COPY package.json pnpm-lock.yaml .npmrc ./
 
 RUN pnpm install --frozen-lockfile
 
 COPY . .
 
-# Ensure transitive .bin scripts (rimraf via ts-builds) are on PATH
-ENV PATH="/app/node_modules/.bin:$PATH"
 RUN pnpm build
 
 # Production stage
@@ -25,7 +23,7 @@ RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
 
 WORKDIR /app
 
-COPY package.json pnpm-lock.yaml ./
+COPY package.json pnpm-lock.yaml .npmrc ./
 
 RUN pnpm install --frozen-lockfile --prod
 
