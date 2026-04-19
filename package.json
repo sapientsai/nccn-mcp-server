@@ -1,6 +1,6 @@
 {
   "name": "nccn-mcp-server",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "MCP server for accessing NCCN clinical cancer treatment guidelines",
   "keywords": [
     "MCP",
