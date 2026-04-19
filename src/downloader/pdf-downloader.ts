@@ -170,7 +170,7 @@ export const downloadPdf = async (
   const skipIfExists = options.skipIfExists ?? true
   const username = options.username ?? process.env.NCCN_USERNAME
   const password = options.password ?? process.env.NCCN_PASSWORD
-  const detailUrl = options.detailUrl
+  const { detailUrl } = options
   const forceRefresh = options.forceRefresh ?? false
 
   const filename = extractFilename(url)

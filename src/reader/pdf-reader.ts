@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises"
 import { resolve } from "node:path"
 
 import { Either } from "functype"
-import pdfParse from "pdf-parse"
+import { PDFParse } from "pdf-parse"
 
 import type { PageContent } from "../types.js"
 
@@ -55,47 +55,39 @@ export const parsePages = (pagesStr: string, totalPages: number): Either<Error, 
  * Extract text content from specific pages of a PDF file.
  */
 export const extractContent = async (pdfPath: string, pages?: string): Promise<Either<Error, PageContent[]>> => {
+  let parser: PDFParse | undefined
   try {
     const absolutePath = resolve(pdfPath)
     const buffer = await readFile(absolutePath)
+    parser = new PDFParse({ data: buffer })
 
-    // Collect per-page text via pdf-parse's pagerender callback.
-    // The callback fires once per page in order; we track the index manually
-    // since pdf-parse doesn't expose it.
-    const perPageText: string[] = []
-    const parsed = await pdfParse(buffer, {
-      pagerender: async (pageData: { getTextContent: () => Promise<{ items: ReadonlyArray<{ str: string }> }> }) => {
-        const textContent = await pageData.getTextContent()
-        const text = textContent.items.map((item) => item.str).join(" ")
-        perPageText.push(text)
-        return text
-      },
-    })
-    const totalPages = parsed.numpages
+    const info = await parser.getInfo()
+    const totalPages = info.total
 
-    let pageIndices: number[]
+    let pageNumbers: number[] // 1-based for pdf-parse v2
     if (pages) {
       const parseResult = parsePages(pages, totalPages)
       if (parseResult.isLeft()) {
         return Either.left(parseResult.value as Error)
       }
-      pageIndices = parseResult.value as number[]
+      pageNumbers = (parseResult.value as number[]).map((i) => i + 1)
     } else {
-      pageIndices = Array.from({ length: totalPages }, (_, i) => i)
+      pageNumbers = Array.from({ length: totalPages }, (_, i) => i + 1)
     }
 
-    const contents: PageContent[] = pageIndices.map((idx) => {
-      const text = perPageText[idx]
-      return {
-        internalLinks: [],
-        pageNumber: idx + 1,
-        text: text && text.trim().length > 0 ? text : `[Page ${idx + 1} - text extraction unavailable]`,
-      }
-    })
+    const result = await parser.getText({ partial: pageNumbers })
+
+    const contents: PageContent[] = result.pages.map((p) => ({
+      internalLinks: [],
+      pageNumber: p.num,
+      text: p.text && p.text.trim().length > 0 ? p.text : `[Page ${p.num} - text extraction unavailable]`,
+    }))
 
     return Either.right(contents)
   } catch (error) {
     return Either.left(error instanceof Error ? error : new Error(String(error)))
+  } finally {
+    await parser?.destroy()
   }
 }
 

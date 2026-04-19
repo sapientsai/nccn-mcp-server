@@ -1,7 +1,8 @@
 import { readFile, stat, writeFile } from "node:fs/promises"
 import { dirname } from "node:path"
 
-import { Either, None, Option, Some } from "functype"
+import type { Option } from "functype"
+import { Either, None, Some } from "functype"
 import yaml from "js-yaml"
 
 import type { CacheInfo, GuidelineIndex, PdfMeta } from "../types.js"

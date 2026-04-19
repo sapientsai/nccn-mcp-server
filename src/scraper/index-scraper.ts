@@ -65,7 +65,7 @@ const findGuidelineInfo = (html: string): GuidelineInfo | undefined => {
 
   $(`a[href*="${PDF_PATH_PATTERN}"]`).each((_, el) => {
     const href = $(el).attr("href")
-    if (!href || !href.toLowerCase().endsWith(".pdf")) return
+    if (!href?.toLowerCase().endsWith(".pdf")) return
     const text = $(el).text().trim().toLowerCase()
     // The main English clinician PDF has anchor text exactly "NCCN Guidelines".
     // Language variants ("Arabic", "Bengali", ...) and patient versions live elsewhere on the page.
