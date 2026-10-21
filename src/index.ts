@@ -9,7 +9,8 @@ import { extractContent, formatContent } from "./reader/pdf-reader.js"
 import { ensureIndex } from "./scraper/index-scraper.js"
 import { DEFAULT_DOWNLOAD_DIR, DEFAULT_INDEX_FILE } from "./types.js"
 
-dotenv.config({ override: false })
+// quiet: dotenv 17 logs to stdout, which corrupts the stdio JSON-RPC stream
+dotenv.config({ override: false, quiet: true })
 
 const server = createServer({
   instructions: [
