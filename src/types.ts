@@ -1,3 +1,5 @@
+import type { Option } from "functype"
+
 export type Guideline = {
   readonly title: string
   readonly url: string
@@ -34,7 +36,7 @@ export type PageContent = {
   readonly internalLinks: ReadonlyArray<{
     readonly sourcePage: number
     readonly target: string
-    readonly targetPage: number | undefined
+    readonly targetPage: Option<number>
   }>
   readonly pageNumber: number
   readonly text: string
@@ -52,7 +54,7 @@ export type DownloadOptions = {
   readonly password?: string
   readonly skipIfExists?: boolean
   readonly username?: string
-  readonly detailUrl?: string
+  readonly detailUrl?: Option<string>
   readonly forceRefresh?: boolean
 }
 

@@ -1,4 +1,5 @@
 import dotenv from "dotenv"
+import { None, Option } from "functype"
 import yaml from "js-yaml"
 import { createServer } from "somamcp"
 import { z } from "zod"
@@ -39,14 +40,16 @@ server.addTool({
 
 // ── Tool: download_pdf ────────────────────────────────────────────────
 
-const lookupDetailUrl = async (pdfUrl: string): Promise<string | undefined> => {
+const lookupDetailUrl = async (pdfUrl: string): Promise<Option<string>> => {
   const index = await readYamlIndex(DEFAULT_INDEX_FILE)
   return index.fold(
-    () => undefined,
+    () => None<string>(),
     (idx) =>
-      idx.nccn_guidelines
-        .flatMap((c) => c.guidelines as ReadonlyArray<{ url: string; detailUrl?: string }>)
-        .find((g) => g.url === pdfUrl)?.detailUrl,
+      Option(
+        idx.nccn_guidelines
+          .flatMap((c) => c.guidelines as ReadonlyArray<{ url: string; detailUrl?: string }>)
+          .find((g) => g.url === pdfUrl)?.detailUrl,
+      ),
   )
 }
 

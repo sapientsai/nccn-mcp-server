@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises"
 import { resolve } from "node:path"
 
-import { Either, Try } from "functype"
+import { Either, Option, Try } from "functype"
 import { PDFParse } from "pdf-parse"
 
 import type { PageContent } from "../types.js"
@@ -61,16 +61,18 @@ const toPageContent = (p: { num: number; text: string }): PageContent => ({
   text: p.text && p.text.trim().length > 0 ? p.text : `[Page ${p.num} - text extraction unavailable]`,
 })
 
-const extractPages = async (pdfPath: string, pages: string | undefined): Promise<PageContent[]> => {
+const extractPages = async (pdfPath: string, pages: Option<string>): Promise<PageContent[]> => {
   const buffer = await readFile(resolve(pdfPath))
   return withParser(buffer, async (parser) => {
     const info = await parser.getInfo()
     const totalPages = info.total
-    const pageNumbers: number[] = pages
-      ? parsePages(pages, totalPages)
+    const pageNumbers: number[] = pages.fold(
+      () => Array.from({ length: totalPages }, (_, i) => i + 1),
+      (spec) =>
+        parsePages(spec, totalPages)
           .map((idx) => idx.map((i) => i + 1))
-          .orThrow()
-      : Array.from({ length: totalPages }, (_, i) => i + 1)
+          .orThrow(),
+    )
     const result = await parser.getText({ partial: pageNumbers })
     return result.pages.map(toPageContent)
   })
@@ -80,7 +82,7 @@ const extractPages = async (pdfPath: string, pages: string | undefined): Promise
  * Extract text content from specific pages of a PDF file.
  */
 export const extractContent = async (pdfPath: string, pages?: string): Promise<Either<Error, PageContent[]>> => {
-  const attempt = await Try.fromPromise<PageContent[]>(extractPages(pdfPath, pages))
+  const attempt = await Try.fromPromise<PageContent[]>(extractPages(pdfPath, Option(pages)))
   return attempt.fold<Either<Error, PageContent[]>>(
     (err) => Either.left<Error, PageContent[]>(err instanceof Error ? err : new Error(String(err))),
     (contents) => Either.right<Error, PageContent[]>(contents),

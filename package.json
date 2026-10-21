@@ -34,7 +34,7 @@
   "dependencies": {
     "cheerio": "^1.2.0",
     "dotenv": "^17.4.2",
-    "functype": "^0.60.7",
+    "functype": "^1.18.0",
     "js-yaml": "^4.3.2",
     "pdf-parse": "^2.4.5",
     "somamcp": "^1.5.0",

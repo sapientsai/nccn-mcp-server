@@ -1,7 +1,8 @@
 import * as cheerio from "cheerio"
-import { Either, Try } from "functype"
+import { Either, None, Option } from "functype"
 
 import { checkCache, readYamlIndex, writeYamlIndex } from "../cache/cache.js"
+import { toError } from "../errors.js"
 import type { Category, Guideline, GuidelineIndex } from "../types.js"
 import { DEFAULT_CACHE_AGE_DAYS, NCCN_BASE_URL, NCCN_CATEGORY_COUNT, USER_AGENT } from "../types.js"
 
@@ -10,18 +11,18 @@ const RETRY_DELAY_MS = 1000
 
 const delay = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
-const fetchText = async (url: string): Promise<string> => {
-  const response = await fetch(url, { headers: { "User-Agent": USER_AGENT } })
-  if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText} for ${url}`)
-  return response.text()
+const fetchText = async (url: string): Promise<Either<Error, string>> => {
+  const responseResult = await Either.fromPromise(fetch(url, { headers: { "User-Agent": USER_AGENT } }), toError)
+  if (responseResult.isLeft()) return Either.left<Error, string>(responseResult.value as Error)
+  const response = responseResult.value as Response
+  if (!response.ok) {
+    return Either.left<Error, string>(new Error(`HTTP ${response.status}: ${response.statusText} for ${url}`))
+  }
+  return Either.fromPromise(response.text(), toError)
 }
 
 const fetchPage = async (url: string, attemptsLeft: number = MAX_RETRIES): Promise<Either<Error, string>> => {
-  const attempt = await Try.fromPromise<string>(fetchText(url))
-  const result = attempt.fold<Either<Error, string>>(
-    (err) => Either.left<Error, string>(err instanceof Error ? err : new Error(String(err))),
-    (text) => Either.right<Error, string>(text),
-  )
+  const result = await fetchText(url)
   return result.foldAsync<Either<Error, string>>(
     async (err) => {
       if (attemptsLeft <= 1) return Either.left<Error, string>(err)
@@ -52,7 +53,7 @@ export type GuidelineInfo = {
   readonly version?: string
 }
 
-const findGuidelineInfo = (html: string): GuidelineInfo | undefined => {
+const findGuidelineInfo = (html: string): Option<GuidelineInfo> => {
   const $ = cheerio.load(html)
   const match = $(`a[href*="${PDF_PATH_PATTERN}"]`)
     .toArray()
@@ -61,52 +62,55 @@ const findGuidelineInfo = (html: string): GuidelineInfo | undefined => {
       const text = $(el).text().trim().toLowerCase()
       return href.endsWith(".pdf") && text === "nccn guidelines"
     })
-  if (!match) return undefined
-  const href = $(match).attr("href") ?? ""
-  const pdfUrl = href.startsWith("http") ? href : `${NCCN_BASE_URL}${href}`
-  const parentText = $(match).parent().text()
-  const versionMatch = VERSION_PATTERN.exec(parentText)
-  return { pdfUrl, version: versionMatch?.[1] }
+  return Option(match).map((el) => {
+    const href = $(el).attr("href") ?? ""
+    const pdfUrl = href.startsWith("http") ? href : `${NCCN_BASE_URL}${href}`
+    const parentText = $(el).parent().text()
+    const versionMatch = VERSION_PATTERN.exec(parentText)
+    return { pdfUrl, version: versionMatch?.[1] }
+  })
 }
 
-const findGuidelineLink = (html: string): string | undefined => findGuidelineInfo(html)?.pdfUrl
+const findGuidelineLink = (html: string): Option<string> => findGuidelineInfo(html).map((info) => info.pdfUrl)
 
-const processItem = async (item: { title: string; url: string }): Promise<Guideline | undefined> => {
+const processItem = async (item: { title: string; url: string }): Promise<Option<Guideline>> => {
   const pageResult = await fetchPage(item.url)
   return pageResult.fold(
-    () => undefined,
-    (html) => {
-      const info = findGuidelineInfo(html)
-      return info ? { title: item.title, url: info.pdfUrl, detailUrl: item.url, version: info.version } : undefined
-    },
+    () => None<Guideline>(),
+    (html) =>
+      findGuidelineInfo(html).map((info) => ({
+        title: item.title,
+        url: info.pdfUrl,
+        detailUrl: item.url,
+        version: info.version,
+      })),
   )
 }
 
-const scrapeCategory = async (categoryNum: number): Promise<Category | undefined> => {
+const scrapeCategory = async (categoryNum: number): Promise<Option<Category>> => {
   const url = `${NCCN_BASE_URL}/guidelines/category_${categoryNum}`
   const pageResult = await fetchPage(url)
 
-  return pageResult.foldAsync<Category | undefined>(
+  return pageResult.foldAsync<Option<Category>>(
     (err) => {
       console.error(`[scraper] Failed to fetch category ${categoryNum}: ${err.message}`)
-      return Promise.resolve(undefined)
+      return Promise.resolve(None<Category>())
     },
     async (html) => {
       const items = extractItemLinks(html)
-      if (items.length === 0) return undefined
+      if (items.length === 0) return None<Category>()
 
       const results = await Promise.allSettled(items.map(processItem))
       const guidelines = results
-        .filter((r): r is PromiseFulfilledResult<Guideline | undefined> => r.status === "fulfilled")
-        .map((r) => r.value)
-        .filter((g): g is Guideline => g !== undefined)
+        .filter((r): r is PromiseFulfilledResult<Option<Guideline>> => r.status === "fulfilled")
+        .flatMap((r) => r.value.toArray())
 
-      if (guidelines.length === 0) return undefined
+      if (guidelines.length === 0) return None<Category>()
 
       const $ = cheerio.load(html)
       const pageTitle = $("title").text().trim()
       const categoryName = pageTitle || `Category ${categoryNum}`
-      return { category: categoryName, guidelines }
+      return Option<Category>({ category: categoryName, guidelines })
     },
   )
 }
@@ -116,9 +120,8 @@ const scrapeAllCategories = async (): Promise<Either<Error, GuidelineIndex>> => 
   const results = await Promise.allSettled(categoryNums.map(scrapeCategory))
 
   const categories = results
-    .filter((r): r is PromiseFulfilledResult<Category | undefined> => r.status === "fulfilled")
-    .map((r) => r.value)
-    .filter((c): c is Category => c !== undefined)
+    .filter((r): r is PromiseFulfilledResult<Option<Category>> => r.status === "fulfilled")
+    .flatMap((r) => r.value.toArray())
 
   return categories.length === 0
     ? Either.left<Error, GuidelineIndex>(new Error("Failed to scrape any NCCN categories"))

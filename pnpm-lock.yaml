@@ -198,8 +198,8 @@ importers:
         specifier: ^17.4.2
         version: 17.4.2
       functype:
-        specifier: ^0.60.7
-        version: 0.60.7
+        specifier: ^1.18.0
+        version: 1.18.0
       js-yaml:
         specifier: ^4.3.2
         version: 4.3.2
@@ -1491,10 +1491,6 @@ packages:
     engines: {node: '>=18.17.0'}
     peerDependencies:
       functype: '>=0.60.0'
-
-  functype@0.60.7:
-    resolution: {integrity: sha512-gsr17MX6UPwteSQ6uPm2hhGz0bBubAGE3HcBIw+HQF6nQlU2FFdPxUNAlhg2PYikahCKyw7WABKtVsJ/Glhk3Q==}
-    hasBin: true
 
   functype@1.18.0:
     resolution: {integrity: sha512-Uh5nrTTYZb4Hy5LTOPYokLc5u83uYGMQk70HYhDAZu9bA+AJX/7qVrD45UnUJVT0gqvQDw9jkhmG8J1vb9+lOQ==}
@@ -3744,8 +3740,6 @@ snapshots:
   functype-os@1.18.0(functype@1.18.0):
     dependencies:
       functype: 1.18.0
-
-  functype@0.60.7: {}
 
   functype@1.18.0: {}
 

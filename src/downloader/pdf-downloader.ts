@@ -2,10 +2,10 @@ import type { Stats } from "node:fs"
 import { mkdir, stat, writeFile } from "node:fs/promises"
 import { basename, join } from "node:path"
 
-import type { Option } from "functype"
-import { Either, None, Some, Try } from "functype"
+import { Either, None, Option, Some, Try } from "functype"
 
 import { readPdfMeta, writePdfMeta } from "../cache/cache.js"
+import { toError } from "../errors.js"
 import type { DownloadOptions, DownloadResult, PdfMeta } from "../types.js"
 import {
   DEFAULT_DOWNLOAD_DIR,
@@ -28,18 +28,17 @@ const statOption = async (filePath: string): Promise<Option<Stats>> => {
   )
 }
 
-const fetchCurrentVersion = async (detailUrl: string): Promise<string | undefined> => {
-  const attempt = await Try.fromPromise<string | undefined>(
-    (async (): Promise<string | undefined> => {
+const fetchCurrentVersion = async (detailUrl: string): Promise<Option<string>> => {
+  const attempt = await Try.fromPromise<Option<string>>(
+    (async (): Promise<Option<string>> => {
       const response = await fetch(detailUrl, { headers: defaultHeaders(), redirect: "follow" })
-      if (!response.ok) return undefined
+      if (!response.ok) return None<string>()
       const html = await response.text()
-      const match = html.match(VERSION_PATTERN)
-      return match?.[1]
+      return Option(html.match(VERSION_PATTERN)?.[1])
     })(),
   )
-  return attempt.fold<string | undefined>(
-    () => undefined,
+  return attempt.fold<Option<string>>(
+    () => None<string>(),
     (v) => v,
   )
 }
@@ -58,55 +57,56 @@ const extractFilename = (url: string): string => {
 const isLoginPage = (html: string): boolean =>
   html.toLowerCase().includes("login") || html.toLowerCase().includes("sign in")
 
-const login = async (username: string, password: string, targetUrl: string): Promise<Either<Error, string[]>> => {
-  try {
-    // First, access the target URL to get redirected to login
-    const initialResponse = await fetch(targetUrl, {
-      headers: defaultHeaders(),
-      redirect: "manual",
-    })
+const submitLogin = async (username: string, password: string, targetUrl: string): Promise<Either<Error, string[]>> => {
+  // First, access the target URL to get redirected to login
+  const initialResponse = await fetch(targetUrl, {
+    headers: defaultHeaders(),
+    redirect: "manual",
+  })
 
-    // Get cookies from the initial response
-    const cookies: string[] = []
-    const setCookies = initialResponse.headers.getSetCookie()
-    cookies.push(...setCookies.map((c) => c.split(";")[0]))
+  // Get cookies from the initial response
+  const cookies: string[] = []
+  const setCookies = initialResponse.headers.getSetCookie()
+  cookies.push(...setCookies.map((c) => c.split(";")[0]))
 
-    // Now POST to login
-    const formData = new URLSearchParams({
-      Password: password,
-      ReturnUrl: new URL(targetUrl).pathname,
-      UserName: username,
-    })
+  // Now POST to login
+  const formData = new URLSearchParams({
+    Password: password,
+    ReturnUrl: new URL(targetUrl).pathname,
+    UserName: username,
+  })
 
-    const loginResponse = await fetch(LOGIN_URL, {
-      body: formData.toString(),
-      headers: {
-        ...defaultHeaders(),
-        "Content-Type": "application/x-www-form-urlencoded",
-        Cookie: cookies.join("; "),
-      },
-      method: "POST",
-      redirect: "manual",
-    })
+  const loginResponse = await fetch(LOGIN_URL, {
+    body: formData.toString(),
+    headers: {
+      ...defaultHeaders(),
+      "Content-Type": "application/x-www-form-urlencoded",
+      Cookie: cookies.join("; "),
+    },
+    method: "POST",
+    redirect: "manual",
+  })
 
-    const loginCookies = loginResponse.headers.getSetCookie()
-    cookies.push(...loginCookies.map((c) => c.split(";")[0]))
+  const loginCookies = loginResponse.headers.getSetCookie()
+  cookies.push(...loginCookies.map((c) => c.split(";")[0]))
 
-    // Check if login was successful (usually a redirect)
-    if (loginResponse.status >= 300 && loginResponse.status < 400) {
-      return Either.right(cookies)
-    }
-
-    // Check response body for error indicators
-    const body = await loginResponse.text()
-    if (body.includes("Invalid") || body.includes("incorrect")) {
-      return Either.left(new Error("Login failed: invalid credentials"))
-    }
-
+  // Check if login was successful (usually a redirect)
+  if (loginResponse.status >= 300 && loginResponse.status < 400) {
     return Either.right(cookies)
-  } catch (error) {
-    return Either.left(error instanceof Error ? error : new Error(String(error)))
   }
+
+  // Check response body for error indicators
+  const body = await loginResponse.text()
+  if (body.includes("Invalid") || body.includes("incorrect")) {
+    return Either.left(new Error("Login failed: invalid credentials"))
+  }
+
+  return Either.right(cookies)
+}
+
+const login = async (username: string, password: string, targetUrl: string): Promise<Either<Error, string[]>> => {
+  const attempt = await Either.fromPromise(submitLogin(username, password, targetUrl), toError)
+  return attempt.flatMap((result) => result)
 }
 
 /**
@@ -119,12 +119,14 @@ const login = async (username: string, password: string, targetUrl: string): Pro
  *   - Within VERSION_CHECK_THROTTLE_HOURS → trust cache, no network call
  *   - Otherwise             → fetch detail page, compare version; match=keep, mismatch=download
  */
-const decideAction = async (
-  filePath: string,
-  detailUrl: string | undefined,
-  forceRefresh: boolean,
-): Promise<{ action: "use-cache" | "download"; reason: string; currentVersion?: string }> => {
-  if (forceRefresh) return { action: "download", reason: "force_refresh requested" }
+type Decision = {
+  readonly action: "use-cache" | "download"
+  readonly reason: string
+  readonly currentVersion: Option<string>
+}
+
+const decideAction = async (filePath: string, detailUrl: Option<string>, forceRefresh: boolean): Promise<Decision> => {
+  if (forceRefresh) return { action: "download", reason: "force_refresh requested", currentVersion: None() }
 
   const statsOpt = await statOption(filePath)
   const { fileExists, fileAgeDays } = statsOpt.fold(
@@ -132,44 +134,50 @@ const decideAction = async (
     (s) => ({ fileExists: s.size > 0, fileAgeDays: (Date.now() - s.mtimeMs) / msPerDay }),
   )
 
-  if (!fileExists) return { action: "download", reason: "no cached file" }
+  if (!fileExists) return { action: "download", reason: "no cached file", currentVersion: None() }
   if (fileAgeDays >= HARD_REFRESH_DAYS) {
-    return { action: "download", reason: `cached file older than ${HARD_REFRESH_DAYS}d hard ceiling` }
+    return {
+      action: "download",
+      reason: `cached file older than ${HARD_REFRESH_DAYS}d hard ceiling`,
+      currentVersion: None(),
+    }
   }
 
   const meta = await readPdfMeta(filePath)
   if (!meta.isSome()) {
     // Have a PDF but no metadata — treat as fresh enough (likely pre-feature download)
     // and let the throttle kick in on next call.
-    return { action: "use-cache", reason: "no metadata (legacy cache entry)" }
+    return { action: "use-cache", reason: "no metadata (legacy cache entry)", currentVersion: None() }
   }
 
   const metaValue = meta.value as PdfMeta
   const hoursSinceCheck = (Date.now() - Date.parse(metaValue.lastCheckedAt)) / msPerHour
   if (hoursSinceCheck < VERSION_CHECK_THROTTLE_HOURS) {
-    return { action: "use-cache", reason: `within ${VERSION_CHECK_THROTTLE_HOURS}h version-check throttle` }
+    return {
+      action: "use-cache",
+      reason: `within ${VERSION_CHECK_THROTTLE_HOURS}h version-check throttle`,
+      currentVersion: None(),
+    }
   }
 
-  if (!detailUrl) {
+  if (detailUrl.isNone()) {
     // No detail URL available — we can't check live version. Trust cache until hard ceiling.
-    return { action: "use-cache", reason: "no detailUrl to check live version" }
+    return { action: "use-cache", reason: "no detailUrl to check live version", currentVersion: None() }
   }
 
-  const currentVersion = await fetchCurrentVersion(detailUrl)
-  if (!currentVersion) {
+  const currentVersion = await fetchCurrentVersion(detailUrl.value as string)
+  return currentVersion.fold<Decision>(
     // Detail page fetch failed — trust cache rather than forcing re-download on network hiccup.
-    return { action: "use-cache", reason: "live version check failed, trusting cache", currentVersion: undefined }
-  }
-
-  if (metaValue.version && metaValue.version === currentVersion) {
-    return { action: "use-cache", reason: `version unchanged (${currentVersion})`, currentVersion }
-  }
-
-  return {
-    action: "download",
-    reason: `version changed: cached=${metaValue.version ?? "unknown"} current=${currentVersion}`,
-    currentVersion,
-  }
+    () => ({ action: "use-cache", reason: "live version check failed, trusting cache", currentVersion }),
+    (version) =>
+      metaValue.version === version
+        ? { action: "use-cache", reason: `version unchanged (${version})`, currentVersion }
+        : {
+            action: "download",
+            reason: `version changed: cached=${metaValue.version ?? "unknown"} current=${version}`,
+            currentVersion,
+          },
+  )
 }
 
 export const downloadPdf = async (
@@ -180,7 +188,7 @@ export const downloadPdf = async (
   const skipIfExists = options.skipIfExists ?? true
   const username = options.username ?? process.env.NCCN_USERNAME
   const password = options.password ?? process.env.NCCN_PASSWORD
-  const { detailUrl } = options
+  const detailUrl = options.detailUrl ?? None<string>()
   const forceRefresh = options.forceRefresh ?? false
 
   const filename = extractFilename(url)
@@ -190,18 +198,18 @@ export const downloadPdf = async (
     const decision = await decideAction(filePath, detailUrl, forceRefresh)
     if (decision.action === "use-cache") {
       // Refresh lastCheckedAt if we just did a live check (regardless of outcome).
-      if (decision.currentVersion !== undefined) {
+      if (decision.currentVersion.isSome()) {
         const existingMeta = await readPdfMeta(filePath)
         const nowIso = new Date().toISOString()
         const updated: PdfMeta = existingMeta.fold(
           () => ({
-            detailUrl,
+            detailUrl: detailUrl.orUndefined(),
             downloadedAt: nowIso,
             lastCheckedAt: nowIso,
             sourceUrl: url,
-            version: decision.currentVersion,
+            version: decision.currentVersion.orUndefined(),
           }),
-          (value) => ({ ...value, lastCheckedAt: nowIso, version: decision.currentVersion }),
+          (value) => ({ ...value, lastCheckedAt: nowIso, version: decision.currentVersion.orUndefined() }),
         )
         await writePdfMeta(filePath, updated)
       }
@@ -215,19 +223,19 @@ export const downloadPdf = async (
   }
 
   const saveMeta = async (): Promise<void> => {
-    const liveVersion = detailUrl ? await fetchCurrentVersion(detailUrl) : undefined
+    const liveVersion = await detailUrl.fold(() => Promise.resolve(None<string>()), fetchCurrentVersion)
     const nowIso = new Date().toISOString()
     const meta: PdfMeta = {
-      detailUrl,
+      detailUrl: detailUrl.orUndefined(),
       downloadedAt: nowIso,
       lastCheckedAt: nowIso,
       sourceUrl: url,
-      version: liveVersion,
+      version: liveVersion.orUndefined(),
     }
     await writePdfMeta(filePath, meta)
   }
 
-  try {
+  const fetchPdf = async (): Promise<Either<Error, DownloadResult>> => {
     await mkdir(downloadDir, { recursive: true })
 
     // Initial request
@@ -275,7 +283,8 @@ export const downloadPdf = async (
     }
 
     return Either.left(new Error(`Unexpected response: content-type=${contentType}`))
-  } catch (error) {
-    return Either.left(error instanceof Error ? error : new Error(String(error)))
   }
+
+  const attempt = await Either.fromPromise(fetchPdf(), toError)
+  return attempt.flatMap((result) => result)
 }
