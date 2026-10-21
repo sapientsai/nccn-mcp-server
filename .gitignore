@@ -45,3 +45,6 @@ node_modules/
 # NCCN runtime artifacts (copyrighted content — do not commit)
 downloads/
 nccn_guidelines_index.yaml
+# ts-builds lint sidecar and vitest 5 reporter output
+.ts-builds/
+.vitest/
