@@ -46,12 +46,13 @@ Creates the MCP server via `somamcp.createServer()` and registers 3 tools + 1 re
 
 ## Environment Variables
 
-| Var             | Purpose                                      | Required                            |
-| --------------- | -------------------------------------------- | ----------------------------------- |
-| `NCCN_USERNAME` | NCCN account email for PDF login             | Yes for download (optional in args) |
-| `NCCN_PASSWORD` | NCCN account password                        | Yes for download (optional in args) |
-| `MCP_TRANSPORT` | `stdio` (default) or `httpStream`            | No                                  |
-| `MCP_PORT`      | Port for httpStream transport (default 8000) | No                                  |
+| Var             | Purpose                                       | Required                            |
+| --------------- | --------------------------------------------- | ----------------------------------- |
+| `NCCN_USERNAME` | NCCN account email for PDF login              | Yes for download (optional in args) |
+| `NCCN_PASSWORD` | NCCN account password                         | Yes for download (optional in args) |
+| `MCP_TRANSPORT` | `stdio` (default) or `httpStream`             | No                                  |
+| `MCP_HOST`      | Bind address for httpStream (default 0.0.0.0) | No                                  |
+| `MCP_PORT`      | Port for httpStream transport (default 8000)  | No                                  |
 
 ## Cache Behavior
 

@@ -79,12 +79,13 @@ pnpm build
 
 ### Environment variables
 
-| Variable        | Purpose                                          | Required                                  |
-| --------------- | ------------------------------------------------ | ----------------------------------------- |
-| `NCCN_USERNAME` | NCCN account email for PDF login                 | Yes for downloads (or passed as tool arg) |
-| `NCCN_PASSWORD` | NCCN account password                            | Yes for downloads (or passed as tool arg) |
-| `MCP_TRANSPORT` | `stdio` (default) or `httpStream`                | No                                        |
-| `MCP_PORT`      | Port for `httpStream` transport (default `8000`) | No                                        |
+| Variable        | Purpose                                           | Required                                  |
+| --------------- | ------------------------------------------------- | ----------------------------------------- |
+| `NCCN_USERNAME` | NCCN account email for PDF login                  | Yes for downloads (or passed as tool arg) |
+| `NCCN_PASSWORD` | NCCN account password                             | Yes for downloads (or passed as tool arg) |
+| `MCP_TRANSPORT` | `stdio` (default) or `httpStream`                 | No                                        |
+| `MCP_HOST`      | Bind address for `httpStream` (default `0.0.0.0`) | No                                        |
+| `MCP_PORT`      | Port for `httpStream` transport (default `8000`)  | No                                        |
 
 ### Claude Code integration (`.mcp.json`)
 

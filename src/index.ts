@@ -131,9 +131,11 @@ const main = async (): Promise<void> => {
 
   const transport = process.env.MCP_TRANSPORT ?? "stdio"
   if (transport === "httpStream") {
+    const host = process.env.MCP_HOST ?? "0.0.0.0"
     const port = parseInt(process.env.MCP_PORT ?? "8000", 10)
-    await server.start({ httpStream: { port }, transportType: "httpStream" })
-    console.error(`[server] NCCN Guidelines MCP server running on port ${port}`)
+    // fastmcp binds to localhost unless given a host, which is unreachable from outside a container
+    await server.start({ httpStream: { host, port }, transportType: "httpStream" })
+    console.error(`[server] NCCN Guidelines MCP server running on ${host}:${port}`)
   } else {
     await server.start({ transportType: "stdio" })
   }
