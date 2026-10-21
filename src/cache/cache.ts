@@ -3,7 +3,7 @@ import { dirname } from "node:path"
 
 import type { Option } from "functype"
 import { Either, None, Some, Try } from "functype"
-import yaml from "js-yaml"
+import { dump, load } from "js-yaml"
 
 import type { CacheInfo, GuidelineIndex, PdfMeta } from "../types.js"
 import { DEFAULT_CACHE_AGE_DAYS } from "../types.js"
@@ -38,7 +38,7 @@ export const checkCache = async (filePath: string, maxAgeDays: number = DEFAULT_
 export const readYamlIndex = async (filePath: string): Promise<Either<Error, GuidelineIndex>> => {
   const contentResult = await toEither(readFile(filePath, "utf-8"))
   return contentResult.flatMap((content) => {
-    const parsed = Try<GuidelineIndex | null | undefined>(() => yaml.load(content) as GuidelineIndex | null | undefined)
+    const parsed = Try<GuidelineIndex | null | undefined>(() => load(content) as GuidelineIndex | null | undefined)
     return parsed.fold<Either<Error, GuidelineIndex>>(
       (err) => Either.left<Error, GuidelineIndex>(err instanceof Error ? err : new Error(String(err))),
       (value) =>
@@ -50,7 +50,7 @@ export const readYamlIndex = async (filePath: string): Promise<Either<Error, Gui
 }
 
 export const writeYamlIndex = async (filePath: string, index: GuidelineIndex): Promise<Either<Error, true>> => {
-  const content = yaml.dump(index, { lineWidth: -1, noRefs: true })
+  const content = dump(index, { lineWidth: -1, noRefs: true })
   const dirResult = await toEither(mkdir(dirname(filePath), { recursive: true }))
   return dirResult.foldAsync<Either<Error, true>>(
     (err) => Promise.resolve(Either.left<Error, true>(err)),

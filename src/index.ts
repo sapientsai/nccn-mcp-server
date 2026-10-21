@@ -1,6 +1,6 @@
 import dotenv from "dotenv"
 import { None, Option } from "functype"
-import yaml from "js-yaml"
+import { dump } from "js-yaml"
 import { createServer } from "somamcp"
 import { z } from "zod"
 
@@ -32,7 +32,7 @@ server.addTool({
     const result = await readYamlIndex(DEFAULT_INDEX_FILE)
     return result.fold(
       (error) => `Error loading index: ${error.message}. Try again — the index may still be loading.`,
-      (index) => yaml.dump(index, { lineWidth: -1, noRefs: true }),
+      (index) => dump(index, { lineWidth: -1, noRefs: true }),
     )
   },
   name: "get_index",
@@ -111,7 +111,7 @@ server.addResource({
     const result = await readYamlIndex(DEFAULT_INDEX_FILE)
     return result.fold(
       () => ({ text: "Index not yet available. The server may still be loading." }),
-      (index) => ({ text: yaml.dump(index, { lineWidth: -1, noRefs: true }) }),
+      (index) => ({ text: dump(index, { lineWidth: -1, noRefs: true }) }),
     )
   },
   mimeType: "text/yaml",
