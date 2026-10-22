@@ -2,7 +2,7 @@ allowBuilds:
   tldjs: false
 
 minimumReleaseAgeExclude:
-  - somamcp@1.5.0
+  - somamcp@1.5.0 || 1.5.1
 
 publicHoistPattern:
   - "*eslint*"
