@@ -1,8 +1,7 @@
-allowBuilds:
-  tldjs: false
-
 minimumReleaseAgeExclude:
-  - somamcp@1.5.0 || 1.5.1
+  - somamcp@2.0.0
+  - functype@1.19.0
+  - functype-log@1.19.0
 
 publicHoistPattern:
   - "*eslint*"

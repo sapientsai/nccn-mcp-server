@@ -1,7 +1,7 @@
 import dotenv from "dotenv"
 import { None, Option } from "functype"
 import { dump } from "js-yaml"
-import { type ContentResult, createServer } from "somamcp"
+import { type ContentResult, createServer } from "somamcp/node"
 import { z } from "zod"
 
 import packageJson from "../package.json" with { type: "json" }
@@ -139,7 +139,7 @@ const main = async (): Promise<void> => {
   if (transport === "httpStream") {
     const host = process.env.MCP_HOST ?? "0.0.0.0"
     const port = parseInt(process.env.MCP_PORT ?? "8000", 10)
-    // fastmcp binds to localhost unless given a host, which is unreachable from outside a container
+    // somamcp binds to localhost unless given a host, which is unreachable from outside a container
     await server.start({ httpStream: { host, port }, transportType: "httpStream" })
     console.error(`[server] NCCN Guidelines MCP server running on ${host}:${port}`)
   } else {
