@@ -1,11 +1,13 @@
 import dotenv from "dotenv"
 import { None, Option } from "functype"
 import { dump } from "js-yaml"
-import { createServer } from "somamcp"
+import { type ContentResult, createServer } from "somamcp"
 import { z } from "zod"
 
+import packageJson from "../package.json" with { type: "json" }
 import { readYamlIndex } from "./cache/cache.js"
 import { downloadPdf } from "./downloader/pdf-downloader.js"
+import { toolError } from "./errors.js"
 import { extractContent, formatContent } from "./reader/pdf-reader.js"
 import { ensureIndex } from "./scraper/index-scraper.js"
 import { DEFAULT_DOWNLOAD_DIR, DEFAULT_INDEX_FILE } from "./types.js"
@@ -21,7 +23,7 @@ const server = createServer({
     "Start with page 3 (Table of Contents) to understand the guideline structure.",
   ].join(" "),
   name: "nccn-guidelines",
-  version: "1.0.0",
+  version: packageJson.version as `${number}.${number}.${number}`,
 })
 
 // ── Tool: get_index ───────────────────────────────────────────────────
@@ -30,8 +32,8 @@ server.addTool({
   description: "Get the NCCN guidelines index listing all available cancer treatment guidelines organized by category",
   execute: async () => {
     const result = await readYamlIndex(DEFAULT_INDEX_FILE)
-    return result.fold(
-      (error) => `Error loading index: ${error.message}. Try again — the index may still be loading.`,
+    return result.fold<ContentResult | string>(
+      (error) => toolError(`Error loading index: ${error.message}. Try again — the index may still be loading.`),
       (index) => dump(index, { lineWidth: -1, noRefs: true }),
     )
   },
@@ -68,8 +70,8 @@ server.addTool({
       password: args.password,
       username: args.username,
     })
-    return result.fold(
-      (error) => `Download failed: ${error.message}`,
+    return result.fold<ContentResult | string>(
+      (error) => toolError(`Download failed: ${error.message}`),
       (dl) => `${dl.message}: ${dl.filename}`,
     )
   },
@@ -91,8 +93,8 @@ server.addTool({
   ].join(" "),
   execute: async (args) => {
     const result = await extractContent(args.pdf_path, args.pages)
-    return result.fold(
-      (error) => `Extraction failed: ${error.message}`,
+    return result.fold<ContentResult | string>(
+      (error) => toolError(`Extraction failed: ${error.message}`),
       (pages) => formatContent(pages),
     )
   },
