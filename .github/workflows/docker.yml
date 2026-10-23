@@ -61,3 +61,5 @@ jobs:
           cache-to: type=gha,mode=max
           build-args: |
             GIT_HASH=${{ github.sha }}
+            BUILD_DATE=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}
+            BUILD_BRANCH=${{ github.ref_name }}
