@@ -1,7 +1,7 @@
 minimumReleaseAgeExclude:
-  - somamcp@2.0.0
-  - functype@1.19.0
-  - functype-log@1.19.0
+  - "*functype*"
+  - ts-builds
+  - somamcp
 
 publicHoistPattern:
   - "*eslint*"
