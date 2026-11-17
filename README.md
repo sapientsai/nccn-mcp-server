@@ -150,6 +150,7 @@ Creates the MCP server via `somamcp.createServer()` and registers 3 tools + 1 re
 
 ```bash
 pnpm validate                                    # format + lint + typecheck + test + build
+pnpm run ci                                      # validate's checks without fixing, as CI runs them (type `run`: `pnpm ci` is a clean install)
 pnpm test                                        # run tests once
 pnpm vitest run test/reader/pdf-reader.spec.ts   # run a single test file
 pnpm build                                       # production build

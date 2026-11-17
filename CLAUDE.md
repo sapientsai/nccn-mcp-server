@@ -12,6 +12,7 @@ Built on **somamcp** (MCP framework) + **functype** (FP patterns). Uses a non-RA
 
 ```bash
 pnpm validate                  # Pre-commit: format + lint + typecheck + test + build
+pnpm run ci                    # validate's checks without fixing, as CI runs them (type `run`: `pnpm ci` is a clean install)
 pnpm test                      # Run tests once
 pnpm vitest run test/reader/pdf-reader.spec.ts   # Run single test file
 pnpm build                     # Production build
